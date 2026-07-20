@@ -3,6 +3,7 @@ package com.example.phonenumbertts
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
+import android.speech.tts.TextToSpeech
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -31,7 +32,7 @@ class MainActivity : AppCompatActivity() {
         val openSettingsButton = Button(this).apply {
             text = "TTS sozlamalarini ochish"
             setOnClickListener {
-                startActivity(Intent(Settings.ACTION_TTS_SETTINGS))
+                startActivity(Intent("com.android.settings.TTS_SETTINGS"))
             }
         }
 
