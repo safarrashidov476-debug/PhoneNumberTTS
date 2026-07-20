@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<voices>
+    <voice
+        android:name="uzb-default"
+        android:locale="uzb"
+        android:requiresNetworkConnection="false" />
+</voices>
