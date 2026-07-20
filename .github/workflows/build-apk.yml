@@ -1,38 +1,28 @@
 name: Build APK
-
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Kodni olish
         uses: actions/checkout@v4
-
       - name: JDK 17 o'rnatish
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
-
+      - name: Gradle wrapper yaratish
+        run: |
+          gradle wrapper --gradle-version 8.7
       - name: Gradle sozlash
         uses: gradle/actions/setup-gradle@v3
-
       - name: gradlew fayliga ruxsat berish
-        run: chmod +x gradlew || true
-
+        run: chmod +x gradlew
       - name: Debug APK yasash
-        run: |
-          if [ -f "./gradlew" ]; then
-            ./gradlew assembleDebug --no-daemon
-          else
-            gradle assembleDebug --no-daemon
-          fi
-
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
       - name: APK faylni saqlash (Artifacts)
         uses: actions/upload-artifact@v4
         with:
