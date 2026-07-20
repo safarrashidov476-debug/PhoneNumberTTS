@@ -1,7 +1,3 @@
 <?xml version="1.0" encoding="utf-8"?>
-<voices xmlns:android="http://schemas.android.com/apk/res/android">
-    <voice
-        android:name="uzb-default"
-        android:locale="uzb"
-        android:requiresNetworkConnection="false" />
-</voices>
+<tts-engine xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="com.example.phonenumbertts.MainActivity" />
