@@ -11,21 +11,12 @@ import java.util.Locale
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
-/**
- * Bu xizmat tizimning TTS dvigateli sifatida ro'yxatdan o'tadi.
- * TalkBack yoki istalgan ilova gapirmoqchi bo'lgan matnni shu xizmat qabul qiladi,
- * ichidagi raqamlarni (telefon/karta) to'g'ri guruhlarga ajratib qayta yozadi,
- * so'ngra haqiqiy ovoz sintezini RHVoice dvigateliga topshiradi.
- */
 class CustomTtsService : TextToSpeechService() {
 
     companion object {
         private const val TAG = "CustomTtsService"
-        // RHVoice'ning Android paket nomi
         private const val RHVOICE_PACKAGE = "com.github.olga_yakovleva.rhvoice.android"
         private const val SAMPLE_RATE = 22050
-        private const val CHANNELS = android.media.AudioFormat.CHANNEL_OUT_MONO
-        private const val ENCODING = android.media.AudioFormat.ENCODING_PCM_16BIT
     }
 
     private var rhvoiceTts: TextToSpeech? = null
@@ -33,7 +24,6 @@ class CustomTtsService : TextToSpeechService() {
 
     override fun onCreate() {
         super.onCreate()
-        // RHVoice dvigateliga ichki mijoz sifatida ulanamiz
         rhvoiceTts = TextToSpeech(this, { status ->
             rhvoiceReady = (status == TextToSpeech.SUCCESS)
             if (!rhvoiceReady) {
@@ -76,10 +66,8 @@ class CustomTtsService : TextToSpeechService() {
         }
 
         val originalText = request.charSequenceText?.toString() ?: request.text ?: ""
-        // Raqamlarni to'g'ri guruhlarga ajratib, TtsSpan bilan belgilaymiz
         val formatted = NumberFormatter.buildSpeechText(originalText)
 
-        // RHVoice orqali audio faylga sintez qilamiz, keyin uni callback'ga uzatamiz
         val outFile = File(cacheDir, "tts_${System.currentTimeMillis()}.wav")
         val latch = CountDownLatch(1)
         var success = false
@@ -107,7 +95,6 @@ class CustomTtsService : TextToSpeechService() {
             return
         }
 
-        // RHVoice faylga yozib bo'lguncha kutamiz (maksimum 10 soniya)
         latch.await(10, TimeUnit.SECONDS)
 
         if (!success || !outFile.exists()) {
@@ -120,23 +107,71 @@ class CustomTtsService : TextToSpeechService() {
         outFile.delete()
     }
 
-    /** WAV faylni o'qib, PCM ma'lumotlarini TTS callback orqali qism-qism uzatadi */
     private fun streamWavFileToCallback(file: File, callback: SynthesisCallback) {
         try {
-            file.inputStream().use { input ->
-                // WAV sarlavhasi (44 bayt) ni o'tkazib yuboramiz
-                val header = ByteArray(44)
-                input.read(header)
-
-                callback.start(SAMPLE_RATE, ENCODING, 1)
-
-                val buffer = ByteArray(4096)
-                var bytesRead: Int
-                while (input.read(buffer).also { bytesRead = it } > 0) {
-                    callback.audioAvailable(buffer, 0, bytesRead)
-                }
-                callback.done()
+            val bytes = file.readBytes()
+            if (bytes.size < 12 || String(bytes, 0, 4, Charsets.US_ASCII) != "RIFF") {
+                Log.e(TAG, "Fayl to'g'ri WAV formatida emas")
+                callback.error()
+                return
             }
+
+            var pos = 12
+            var sampleRate = SAMPLE_RATE
+            var channels = 1
+            var bitsPerSample = 16
+            var dataStart = -1
+            var dataSize = 0
+
+            while (pos + 8 <= bytes.size) {
+                val chunkId = String(bytes, pos, 4, Charsets.US_ASCII)
+                val chunkSize = (bytes[pos + 4].toInt() and 0xFF) or
+                        ((bytes[pos + 5].toInt() and 0xFF) shl 8) or
+                        ((bytes[pos + 6].toInt() and 0xFF) shl 16) or
+                        ((bytes[pos + 7].toInt() and 0xFF) shl 24)
+                val chunkDataStart = pos + 8
+
+                if (chunkId == "fmt ") {
+                    channels = (bytes[chunkDataStart + 2].toInt() and 0xFF) or
+                            ((bytes[chunkDataStart + 3].toInt() and 0xFF) shl 8)
+                    sampleRate = (bytes[chunkDataStart + 4].toInt() and 0xFF) or
+                            ((bytes[chunkDataStart + 5].toInt() and 0xFF) shl 8) or
+                            ((bytes[chunkDataStart + 6].toInt() and 0xFF) shl 16) or
+                            ((bytes[chunkDataStart + 7].toInt() and 0xFF) shl 24)
+                    bitsPerSample = (bytes[chunkDataStart + 14].toInt() and 0xFF) or
+                            ((bytes[chunkDataStart + 15].toInt() and 0xFF) shl 8)
+                } else if (chunkId == "data") {
+                    dataStart = chunkDataStart
+                    dataSize = chunkSize
+                    break
+                }
+
+                pos = chunkDataStart + chunkSize + (chunkSize % 2)
+            }
+
+            if (dataStart < 0) {
+                Log.e(TAG, "WAV faylida 'data' bo'limi topilmadi")
+                callback.error()
+                return
+            }
+
+            val encoding = if (bitsPerSample == 8) {
+                android.media.AudioFormat.ENCODING_PCM_8BIT
+            } else {
+                android.media.AudioFormat.ENCODING_PCM_16BIT
+            }
+
+            callback.start(sampleRate, encoding, channels)
+
+            val maxChunk = callback.maxBufferSize
+            var offset = dataStart
+            val end = minOf(dataStart + dataSize, bytes.size)
+            while (offset < end) {
+                val len = minOf(maxChunk, end - offset)
+                callback.audioAvailable(bytes, offset, len)
+                offset += len
+            }
+            callback.done()
         } catch (e: Exception) {
             Log.e(TAG, "WAV faylni o'qishda xato: ${e.message}")
             callback.error()
